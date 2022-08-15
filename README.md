@@ -26,9 +26,13 @@ environment = CircuitEnv(..., n_electrons=...)
 ### Gates
 We allow to different types of gates: single and double qubit excitations. For simplicity the single excitations always come in pairs (treating the corresponding spin-up and spin-down electrons on the same lever).  
 When compiled into native gates, double excitations (exicting electrons from qubits 0,1 to 2,3 and vice versa) look like:  
+  
 <img src="double_excitation.png" width=600>  
+  
 so they have a depth of 22, while two single excitations (exciting an electron from qubit 0 to 2 and another from qubit 1 to 3) look like:  
+  
 <img src="single_excitation.png" width=600>  
+  
 with a depth of 8.
 
 ### Encoding
