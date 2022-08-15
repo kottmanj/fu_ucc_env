@@ -20,7 +20,7 @@ Basically we are building circuits like in Fig.1 of [arxiv:2207.12421](https://a
 - Some Approximations made (see below)
 - Hartree-Fock state currently hard-coded to 2 electron systems when `n_electrons` variable is not set. Set it with:
 ```python
-environment = CircuitEnv(..., n_electron=...)
+environment = CircuitEnv(..., n_electrons=...)
 ```
 
 ### Gates
