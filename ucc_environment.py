@@ -136,8 +136,8 @@ class CircuitEnvUCC(CircuitEnv):
                 U += tq.gates.QubitExcitation(target=[2*a,2*b,2*a+1,2*b+1], angle=tq.Variable(angle)*numpy.pi)
             elif c != self.num_qubits//2 and d < self.num_qubits//2 and c!=d:
                 angle=(c,d,"S")
-                U += tq.gates.QubitExcitation(target=[2*c,2*d], angle=(tq.Variable(angle)+0.2)*numpy.pi)
-                U += tq.gates.QubitExcitation(target=[2*c+1,2*d+1], angle=(tq.Variable(angle)+0.2)*numpy.pi)
+                U += self.mol.make_excitation_gate(indices=[(2*c,2*d)], angle=(tq.Variable(angle)+0.2)*numpy.pi)
+                U += self.mol.make_excitation_gate(indices=[(2*c+1,2*d+1)], angle=(tq.Variable(angle)+0.2)*numpy.pi)
 
             if angle is not None:
                 try:

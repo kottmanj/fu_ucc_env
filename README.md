@@ -39,16 +39,12 @@ with a depth of 8.
 We use the same encoding and interpret it differently:  
 Four integers [a,b,c,d]:
 - [a,b] encodes double excitations between qubits 2a and 2b to qubits 2a+1 and 2b+1
-- [c,d] encodes single excitations from qubit 2c to 2d and 2c+1 to 2d+1
+- [c,d] encodes single fermionic excitations from qubit 2c to 2d and 2c+1 to 2d+1
 - double excitations are preferred and initialized as soon as a!=b and a smaller as Nq
 - otherwise single excitations are iniaitlized as long as c!=d and c smaller as Nq
 - if conditions are not met, no gate is initialized (potential danger of accumulating trash sequences)
 
 ### Approximations
-Instead of Fermionic single-electron excitations (keep track of antisymmetry) we use single-qubit excitations.  
-For simplicity in the encoding we still force qubit excitations corresponding to spin-up and spin-down electron excitations from the same orbital to have the same angles.  
-This is inconsistent (spin-symmetry) but shouldn't matter much for systems like LiH. For larger systems we should either allow individual angles or directly use fermionic excitations.  
-  
+
 Instead of allowing all possible double excitation of electrons we restirct ourselves to spin-paired electrons from the same spatial orbitals (this corresponds to a quasi-particle excitation of a so-called hard-core Boson - see IA of [arxiv:2105.03836](https://arxiv.org/abs/2105.03836) ). So there is no approximation in the gate itself but an approximation in the range of different gates that we allow to be constructed.  
 
-Reason for these approximations right now: Easier to adapt to current encoding and consistent in circuit depth (standard fermionic excitations vary in gate depth depending on the qubits on which they act).
