@@ -68,7 +68,9 @@ class CircuitEnvUCC(CircuitEnv):
         self.hamiltonian, eigvals, self.energy_shift = __ham['hamiltonian'], __ham['eigvals'], __ham['energy_shift']
 
         min_eig = min(eigvals)+self.energy_shift
+        self.min_eig = min_eig
         max_eig = max(eigvals)+self.energy_shift
+        self.max_eig = max_eig
         if self.tq_hamiltonian.n_qubits < 11:
             v = numpy.linalg.eigvalsh(self.tq_hamiltonian.to_matrix())
 
@@ -81,16 +83,18 @@ class CircuitEnvUCC(CircuitEnv):
             if not consistent:
                 warnings.warn("tq molecule and loaded qiskit Hamiltonian have different energies!")
 
-        if self.num_layers > 15:
+        if self.num_layers > 30:
             warnings.warn("num_layers is quite high", UserWarning)
 
 
 
     def get_energy(self, *args, **kwargs):
-        """
-        Make sure this is not called
-        """
-        raise Exception("forbidden")
+        variables = self.variables
+        U = self.make_circuit()
+        H = self.tq_hamiltonian
+        E = tq.ExpectationValue(H=H, U=U)
+        return tq.simulate(E, variables=variables)
+
 
     def make_circuit(self, thetas=None):
         """
@@ -179,6 +183,7 @@ class CircuitEnvUCC(CircuitEnv):
         H = self.tq_hamiltonian
         E = tq.ExpectationValue(H=H, U=U)
         result = tq.minimize(E, silent=True, initial_values=self.variables)
+        print("error : {:2.4f}".format(self.min_eig-result.energy))
         energy = result.energy
         angles = list(result.variables.values())
         thetas = self.state[-1]
