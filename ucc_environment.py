@@ -1,5 +1,7 @@
 import numpy
 import warnings
+import torch
+import copy
 
 ###########################
 # Some Import Statements  #
@@ -37,23 +39,47 @@ class CircuitEnvUCC(CircuitEnv):
         
         # regular initialization
         super().__init__(*args, **kwargs)
+
         if "n_electrons" in kwargs:
             self.n_electrons = kwargs["n_electrons"]
         else:
             warnings.warn("n_electrons not given ... assuming it's the test case with 2 active electrons", UserWarning)
             self.n_electrons = 2
 
+        if "geometry" in kwargs:
+            geometry = kwargs["geometry"]
+        else:
+            geometry = "Li 0.0 0.0 0.0\nH 0.0 0.0 2.2"
+
+        if "active_orbitals" in kwargs:
+            active_orbitals = kwargs["active_orbitals"]
+        elif "li" in geometry.lower() and "h" in geometry.lower():
+            active_orbitals = [1, 2, 5]
+        else:
+            active_orbitals = None
+
+        self.mol = tq.Molecule(geometry=geometry, basis_set="sto-3g", active_orbitals=active_orbitals)
+        self.tq_hamiltonian = self.mol.make_hamiltonian()
+        assert self.n_electrons == self.mol.n_electrons
+
+        # consistency check
+        if self.tq_hamiltonian.n_qubits < 11:
+            v = numpy.linalg.eigvalsh(self.tq_hamiltonian.to_matrix())
+
+            assert numpy.isclose(v[-1], self.max_eig)
+            if self.fake_min_energy is not None:
+                assert numpy.isclose(v[0],self.min_eig)
+
+        if self.num_layers > 15:
+            warnings.warn("num_layers is quite high", UserWarning)
+
+
+
     def get_energy(self, *args, **kwargs):
         """
-        Just illustrating some things on how overriding works
-        here we just call the original get_energy function from the base class and return it
-        so right now this function dosn't really do anything more and could also be deleted
-        For illustration purpose I'll give it an option to remove the energy-shift (wich is not really needed)
+        Make sure this is not called
         """
-        energy = super().get_energy(*args)
-        if "remove_shift" in kwargs and kwargs["remove_shift"]:
-            energy -= self.energy_shift # energy_shift is set in the initialization of the base class (this is inherited as well)
-        return energy
+        raise Exception("forbidden")
 
     def make_circuit(self, thetas=None):
         """
@@ -82,6 +108,7 @@ class CircuitEnvUCC(CircuitEnv):
         """
 
         state = self.state.clone()
+        variables = {}
         U = tq.gates.X([q for q in range(self.n_electrons)])
         for i in range(self.num_layers):
             # at self.reset, make_circuit is called with thetas=state
@@ -91,27 +118,82 @@ class CircuitEnvUCC(CircuitEnv):
             b = int(state[1][i].item()//2)
             c = int(state[2][i].item()//2)
             d = int(state[3][i].item()//2)
-            try:
-                angle = thetas[i].item()*numpy.pi
-                # angle needs to be set
-                assert angle is not None
-            except:
-                continue
 
-            if c != self.num_qubits//2 and c!=d:
-                U += tq.gates.QubitExcitation(target=[2*c,2*d], angle=angle)
-                U += tq.gates.QubitExcitation(target=[2*c+1,2*d+1], angle=angle)
-            elif a != self.num_qubits//2 and a!=b:
-                U += tq.gates.QubitExcitation(target=[2*a,2*b,2*a+1,2*b+1], angle=angle)
-            
-        
-        # make sure that tq doesn't do any automatic mappings to smaller qubit systems
-        U.n_qubits=self.num_qubits
-        U += tq.gates.X([i for i in range(self.num_qubits)])
-        U += tq.gates.X([i for i in range(self.num_qubits)])
-        # failsave as the RL code works with explicit variables
-        assert len(U.extract_variables()) == 0 
-        # convert to Qulacs circuit
-        circuit = tq.compile(U, backend="qulacs").circuit
-    
-        return circuit
+            angle = None
+            if a < self.num_qubits//2 and b < self.num_qubits//2 and a!=b:
+                angle=(a,b,"D")
+                U += tq.gates.QubitExcitation(target=[2*a,2*b,2*a+1,2*b+1], angle=tq.Variable(angle)*numpy.pi)
+            elif c != self.num_qubits//2 and d < self.num_qubits//2 and c!=d:
+                angle=(c,d,"S")
+                U += tq.gates.QubitExcitation(target=[2*c,2*d], angle=(tq.Variable(angle)+0.2)*numpy.pi)
+                U += tq.gates.QubitExcitation(target=[2*c+1,2*d+1], angle=(tq.Variable(angle)+0.2)*numpy.pi)
+
+            if angle is not None:
+                try:
+                    variables[angle] = thetas[i].item()
+                except:
+                    variables[angle] = 0.0
+
+        self.variables = variables
+        return U
+
+    def step(self, action, train_flag=True):
+
+        """
+        Action is performed on the first empty layer.
+        Variable 'actual_layer' points last non-empty layer.
+        """
+        next_state = self.state.clone()
+        self.actual_layer += 1
+
+        """
+        First two elements of the 'action' vector describes position of the CNOT gate.
+        Position of rotation gate and its axis are described by action[2] and action[3].
+        When action[0] == num_qubits, then there is no CNOT gate.
+        When action[2] == num_qubits, then there is no Rotation gate.
+        """
+
+        next_state[0][self.actual_layer] = action[0]
+        next_state[1][self.actual_layer] = (action[0] + action[1]) % self.num_qubits
+
+        ## state[2] corresponds to number of qubit for rotation gate
+        next_state[2][self.actual_layer] = action[2]
+        next_state[3][self.actual_layer] = action[3]
+        next_state[4][self.actual_layer] = torch.zeros(1)
+
+        self.state = next_state.clone()
+
+        # solve with scipyt and analytical gradients (will take longer)
+        U = self.make_circuit()
+        H = self.tq_hamiltonian
+        E = tq.ExpectationValue(H=H, U=U)
+        result = tq.minimize(E, silent=True, initial_values=self.variables)
+        energy = result.energy
+        angles = list(result.variables.values())
+        thetas = self.state[-1]
+        for i in range(len(angles)):
+            thetas[i] = angles[i]
+        next_state[-1] = thetas
+
+        self.energy = energy
+        if energy < self.curriculum.lowest_energy and train_flag:
+            self.curriculum.lowest_energy = copy.copy(energy)
+
+        self.error = float(abs(self.min_eig - energy))
+
+        rwd = self.reward_fn(energy)
+        self.prev_energy = numpy.copy(energy)
+
+        energy_done = int(self.error < self.done_threshold)
+        layers_done = self.actual_layer == (self.num_layers - 1)
+        done = int(energy_done or layers_done)
+
+        if done:
+            self.curriculum.update_threshold(energy_done=energy_done)
+            self.done_threshold = self.curriculum.get_current_threshold()
+            self.curriculum_dict[str(self.current_bond_distance)] = copy.deepcopy(self.curriculum)
+
+        self.state = next_state.clone()
+        return next_state.view(-1).to(self.device), torch.tensor(rwd, dtype=torch.float32, device=self.device), done
+
+
