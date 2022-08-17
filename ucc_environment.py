@@ -63,12 +63,23 @@ class CircuitEnvUCC(CircuitEnv):
         assert self.n_electrons == self.mol.n_electrons
 
         # consistency check
+
+        __ham = numpy.load(f"mol_data/LiH_{self.num_qubits}q_geom_{self.geometry}_{self.ham_mapping}.npz")
+        self.hamiltonian, eigvals, self.energy_shift = __ham['hamiltonian'], __ham['eigvals'], __ham['energy_shift']
+
+        min_eig = min(eigvals)+self.energy_shift
+        max_eig = max(eigvals)+self.energy_shift
         if self.tq_hamiltonian.n_qubits < 11:
             v = numpy.linalg.eigvalsh(self.tq_hamiltonian.to_matrix())
 
-            assert numpy.isclose(v[-1], self.max_eig)
-            if self.fake_min_energy is not None:
-                assert numpy.isclose(v[0],self.min_eig)
+            consistent = True
+            if not numpy.isclose(v[-1], max_eig):
+                consistent = False
+            if not numpy.isclose(v[0],min_eig):
+                consistent = False
+
+            if not consistent:
+                warnings.warn("tq molecule and loaded qiskit Hamiltonian have different energies!")
 
         if self.num_layers > 15:
             warnings.warn("num_layers is quite high", UserWarning)
